@@ -50,3 +50,4 @@ CLAUDE.md
 # Client source map artifacts
 packages/client/src/**/*.js
 .hermes/
+hermes-web-ui-main.zip
