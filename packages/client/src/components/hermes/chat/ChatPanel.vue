@@ -41,7 +41,7 @@ import LanguageSwitch from "@/components/layout/LanguageSwitch.vue";
 import ThemeSwitch from "@/components/layout/ThemeSwitch.vue";
 import VersionManagementModal from "@/components/layout/VersionManagementModal.vue";
 import { changelog } from "@/data/changelog";
-import { getStoredUsername } from "@/api/client";
+import { getStoredUsername, isStoredSuperAdmin } from "@/api/client";
 
 const chatStore = useChatStore();
 const appStore = useAppStore();
@@ -51,6 +51,7 @@ const router = useRouter();
 const message = useMessage();
 const { t } = useI18n();
 const currentUsername = computed(() => getStoredUsername());
+const isSuperAdmin = computed(() => isStoredSuperAdmin());
 
 const showOutline = ref(false);
 const messageListRef = ref<InstanceType<typeof MessageList> | null>(null);
@@ -1601,7 +1602,7 @@ async function handleSessionModelCustomSubmit() {
         <div class="header-actions">
           <!-- chat/live mode toggle hidden -->
           <template v-if="currentMode === 'chat'">
-            <NTooltip trigger="hover">
+            <NTooltip v-if="isSuperAdmin" trigger="hover">
               <template #trigger>
                 <NButton
                   class="header-tool-toggle"
