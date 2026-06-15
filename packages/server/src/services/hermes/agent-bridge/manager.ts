@@ -216,12 +216,30 @@ function firstExistingExecutable(candidates: string[]): string | undefined {
   return undefined
 }
 
+function pipInstalledAgentRoot(): string | undefined {
+  const script = 'import site; [print(p) for p in site.getsitepackages()]'
+  const commands = ['py', 'python', 'python3']
+  for (const cmd of commands) {
+    try {
+      const result = execFileSync(cmd, ['-c', script], {
+        encoding: 'utf-8', windowsHide: true, timeout: 5000,
+      })
+      const paths = result.trim().split('\n').map((s: string) => s.trim()).filter(Boolean)
+      for (const sitePkgs of paths) {
+        if (sitePkgs && existsSync(join(sitePkgs, 'run_agent.py'))) return sitePkgs
+      }
+    } catch {}
+  }
+  return undefined
+}
+
 function resolveAgentRoot(explicit?: string, hermesHome = detectHermesHome()): string | undefined {
   const candidates = [
     explicit,
     process.env.HERMES_AGENT_ROOT,
     join(hermesHome, 'hermes-agent'),
     agentRootFromHermesBin(),
+    pipInstalledAgentRoot(),
     process.cwd(),
     join(process.cwd(), 'hermes-agent'),
     '/usr/local/lib/hermes-agent',

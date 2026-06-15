@@ -315,6 +315,64 @@ export const GC_SESSION_PROFILES_SCHEMA: Record<string, string> = {
 }
 
 // ============================================================================
+// Homework Grading (grading-store.ts)
+// ============================================================================
+
+export const GRADING_ASSIGNMENTS_TABLE = 'grading_assignments'
+
+export const GRADING_ASSIGNMENTS_SCHEMA: Record<string, string> = {
+  id: 'INTEGER PRIMARY KEY AUTOINCREMENT',
+  class_name: 'TEXT NOT NULL',
+  dir_name: 'TEXT NOT NULL',
+  dir_path: 'TEXT NOT NULL',
+  subject: "TEXT NOT NULL DEFAULT ''",
+  answer_images: "TEXT NOT NULL DEFAULT '[]'",
+  student_count: 'INTEGER NOT NULL DEFAULT 0',
+  status: "TEXT NOT NULL DEFAULT 'discovered'",
+  created_at: 'INTEGER NOT NULL',
+}
+
+export const GRADING_ASSIGNMENTS_INDEXES = {
+  idx_grading_assignments_class: 'CREATE INDEX IF NOT EXISTS idx_grading_assignments_class ON grading_assignments(class_name)',
+  idx_grading_assignments_status: 'CREATE INDEX IF NOT EXISTS idx_grading_assignments_status ON grading_assignments(status)',
+}
+
+export const GRADING_TEMPLATES_TABLE = 'grading_templates'
+
+export const GRADING_TEMPLATES_SCHEMA: Record<string, string> = {
+  id: 'INTEGER PRIMARY KEY AUTOINCREMENT',
+  assignment_id: 'INTEGER NOT NULL UNIQUE',
+  raw_extraction: "TEXT NOT NULL DEFAULT '{}'",
+  corrected_data: "TEXT NOT NULL DEFAULT '{}'",
+  is_confirmed: 'INTEGER NOT NULL DEFAULT 0',
+  confirmed_at: 'INTEGER',
+  created_at: 'INTEGER NOT NULL',
+}
+
+export const GRADING_RESULTS_TABLE = 'grading_results'
+
+export const GRADING_RESULTS_SCHEMA: Record<string, string> = {
+  id: 'INTEGER PRIMARY KEY AUTOINCREMENT',
+  assignment_id: 'INTEGER NOT NULL',
+  student_name: 'TEXT NOT NULL',
+  image_paths: "TEXT NOT NULL DEFAULT '[]'",
+  score: 'REAL NOT NULL DEFAULT 0',
+  total: 'REAL NOT NULL DEFAULT 0',
+  correct_count: 'INTEGER NOT NULL DEFAULT 0',
+  question_count: 'INTEGER NOT NULL DEFAULT 0',
+  details: "TEXT NOT NULL DEFAULT '[]'",
+  evaluation: "TEXT NOT NULL DEFAULT ''",
+  error_analysis: 'TEXT',
+  created_at: 'INTEGER NOT NULL',
+}
+
+export const GRADING_RESULTS_INDEXES = {
+  idx_grading_results_assignment: 'CREATE INDEX IF NOT EXISTS idx_grading_results_assignment ON grading_results(assignment_id)',
+  idx_grading_results_student: 'CREATE INDEX IF NOT EXISTS idx_grading_results_student ON grading_results(student_name)',
+  idx_grading_results_class_student: 'CREATE INDEX IF NOT EXISTS idx_grading_results_class_student ON grading_results(assignment_id, student_name)',
+}
+
+// ============================================================================
 // Schema Sync Utilities
 // ============================================================================
 
@@ -528,6 +586,15 @@ export function initAllHermesTables(): void {
       indexes: {
         idx_gc_room_members_user: 'CREATE INDEX idx_gc_room_members_user ON gc_room_members(userId)',
       }
+    })
+
+    // Homework grading
+    syncTable(GRADING_ASSIGNMENTS_TABLE, GRADING_ASSIGNMENTS_SCHEMA, {
+      indexes: GRADING_ASSIGNMENTS_INDEXES,
+    })
+    syncTable(GRADING_TEMPLATES_TABLE, GRADING_TEMPLATES_SCHEMA)
+    syncTable(GRADING_RESULTS_TABLE, GRADING_RESULTS_SCHEMA, {
+      indexes: GRADING_RESULTS_INDEXES,
     })
   } catch (e) {
     console.error('Error initializing Hermes SQLite tables:', e)

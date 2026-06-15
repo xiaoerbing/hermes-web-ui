@@ -34,6 +34,7 @@ import { kanbanRoutes } from './hermes/kanban'
 import { ttsRoutes, ttsProtectedRoutes } from './hermes/tts'
 import { sttProtectedRoutes } from './hermes/stt'
 import { mediaRoutes } from './hermes/media'
+import { gradingRoutes } from './hermes/grading'
 import { proxyRoutes, proxyMiddleware } from './hermes/proxy'
 import { groupChatRoutes, setGroupChatServer } from './hermes/group-chat'
 import { performanceMonitorRoutes } from './hermes/performance-monitor'
@@ -88,6 +89,7 @@ export function registerRoutes(app: any, authMiddleware: Array<(ctx: Context, ne
   app.use(ttsProtectedRoutes.routes())
   app.use(sttProtectedRoutes.routes())
   app.use(mediaRoutes.routes())              // Must be before proxy
+  app.use(gradingRoutes.routes())              // Must be before proxy
   app.use(performanceMonitorRoutes.routes())  // Must be before proxy
   app.use(mcpRoutes.routes())                   // MCP management
   app.use(runtimeVersionRoutes.routes())         // Runtime and version management

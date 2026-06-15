@@ -51,3 +51,6 @@ CLAUDE.md
 packages/client/src/**/*.js
 .hermes/
 hermes-web-ui-main.zip
+# Local testing / playground (not part of the project)
+playground/
+test_dify/
