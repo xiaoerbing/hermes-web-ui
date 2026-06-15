@@ -61,19 +61,9 @@ export function selectProfilesForGatewayAutostart(
   return candidates.filter(name => !exclude.has(name))
 }
 
-function isDockerRuntime(): boolean {
-  return existsSync('/.dockerenv')
-}
-
-function isTermuxRuntime(): boolean {
-  const prefix = process.env.PREFIX || ''
-  return !!process.env.TERMUX_VERSION ||
-    prefix.includes('/com.termux/') ||
-    existsSync('/data/data/com.termux/files/usr')
-}
-
-function envFlagEnabled(name: string): boolean {
-  return envValueFlagEnabled(process.env[name])
+function envFlagDisabled(name: string): boolean {
+  const normalized = String(process.env[name] || '').trim().toLowerCase()
+  return ['0', 'false', 'no', 'off'].includes(normalized)
 }
 
 function envValueFlagEnabled(value: unknown): boolean {
@@ -242,17 +232,12 @@ async function recoverWindowsDesktopGatewayOrphansOnce(): Promise<void> {
 }
 
 export function shouldUseManagedGatewayRun(): boolean {
-  return envFlagEnabled('HERMES_WEB_UI_MANAGED_GATEWAY') ||
-    isDockerRuntime() ||
-    isTermuxRuntime() ||
-    process.platform === 'win32'
+  return !envFlagDisabled('HERMES_WEB_UI_MANAGED_GATEWAY')
 }
 
 export function shouldUseManagedGatewayRunForAutostart(platform: NodeJS.Platform = process.platform): boolean {
-  return envFlagEnabled('HERMES_WEB_UI_MANAGED_GATEWAY') ||
-    isDockerRuntime() ||
-    isTermuxRuntime() ||
-    platform === 'win32'
+  void platform
+  return !envFlagDisabled('HERMES_WEB_UI_MANAGED_GATEWAY')
 }
 
 export function gatewayStatusLooksRunning(output: string): boolean {

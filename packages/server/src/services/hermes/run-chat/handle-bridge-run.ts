@@ -361,10 +361,15 @@ export async function handleBridgeRun(
   const displayInput = data.display_input === undefined ? input : data.display_input
   const inputStr = displayInput == null ? '' : contentBlocksToString(displayInput)
   const actualInputStr = contentBlocksToString(input)
+  const storageInputStr = data.storage_message !== undefined ? data.storage_message : inputStr
+  const shouldStoreInputInsteadOfDisplay = data.storage_message !== undefined && data.storage_message !== inputStr
   const currentInputUsage = estimateUsageTokensFromMessages([{ role: 'user', content: actualInputStr }])
   const currentInputTokens = currentInputUsage.inputTokens
   const shouldPersistUserMessage = !skipUserMessage && displayInput !== null
   const displayRole = data.display_role === 'command' ? 'command' : 'user'
+  const storageRole = shouldStoreInputInsteadOfDisplay ? 'user' : displayRole
+  const displayRoleForStorage = shouldStoreInputInsteadOfDisplay ? displayRole : null
+  const displayContentForStorage = shouldStoreInputInsteadOfDisplay ? inputStr : null
   let messageId: number | string | undefined
 
   if (shouldPersistUserMessage) {
@@ -372,8 +377,10 @@ export async function handleBridgeRun(
       id: state.messages.length + 1,
       session_id,
       runMarker,
-      role: displayRole,
-      content: inputStr,
+      role: storageRole,
+      content: storageInputStr,
+      display_role: displayRoleForStorage,
+      display_content: displayContentForStorage,
       timestamp: now,
     })
 
@@ -384,8 +391,10 @@ export async function handleBridgeRun(
     }
     messageId = addMessage({
       session_id,
-      role: displayRole,
-      content: inputStr,
+      role: storageRole,
+      content: storageInputStr,
+      display_role: displayRoleForStorage,
+      display_content: displayContentForStorage,
       timestamp: now,
     })
   } else if (!getSession(session_id)) {
@@ -404,8 +413,8 @@ export async function handleBridgeRun(
       session_id,
       message: {
         id: data.queue_id || messageId,
-        role: displayRole,
-        content: inputStr,
+        role: displayRoleForStorage || storageRole,
+        content: displayContentForStorage || storageInputStr,
         timestamp: now,
       },
     })

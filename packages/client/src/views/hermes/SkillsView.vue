@@ -243,7 +243,7 @@ function handlePinToggled(name: string, pinned: boolean) {
           :placeholder="t('skills.searchPlaceholder')"
           size="small"
           clearable
-          style="width: 160px"
+          style="width: 130px"
         />
       </div>
     </header>

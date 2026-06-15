@@ -26,7 +26,7 @@ const CODEX_CATALOG_BASE_INSTRUCTIONS = 'You are Codex, a coding agent. Be preci
 const NODE_ENVIRONMENT_MISSING_CODE = 'node_environment_missing'
 const POSIX_LAUNCHER_FILE = 'launch.sh'
 const WINDOWS_LAUNCHER_FILE = 'launch.ps1'
-const CODING_AGENT_SCOPED_AUTH_PROVIDERS = new Set(['openai-codex', 'copilot', 'xai-oauth', 'nous'])
+const CODING_AGENT_SCOPED_AUTH_PROVIDERS = new Set(['openai-codex', 'copilot', 'xai-oauth', 'nous', 'google-gemini-cli', 'claude-oauth'])
 const CLAUDE_CODE_SKIP_PERMISSIONS_ARGS = ['--dangerously-skip-permissions']
 const CLAUDE_CODE_ROOT_PERMISSION_ARGS = ['--permission-mode', 'auto']
 
@@ -429,6 +429,19 @@ function inferLaunchApiMode(provider: string, baseUrl: string, fallback: ApiMode
     return 'chat_completions'
   }
   return fallback
+}
+
+function isScopedCodingAgentAuthProvider(provider: string, apiKey = ''): boolean {
+  const providerKey = String(provider || '').trim().toLowerCase()
+  return CODING_AGENT_SCOPED_AUTH_PROVIDERS.has(providerKey)
+}
+
+function assertScopedCodingAgentProviderAllowed(mode: CodingAgentLaunchResult['mode'], provider: string, apiKey = ''): void {
+  if (mode === 'global') return
+  if (!isScopedCodingAgentAuthProvider(provider, apiKey)) return
+  const err = new Error('Coding agent scoped mode does not support OAuth/subscription providers. Use global mode or select an API-key provider.')
+  ;(err as any).status = 400
+  throw err
 }
 
 async function resolveStoredProviderLaunchInput(
@@ -1310,6 +1323,8 @@ export async function prepareCodingAgentLaunch(id: string, input: CodingAgentLau
   const provider = normalizeScopeSegment(input.provider, 'default', 'provider')
   const scope = normalizeConfigScope({ profile: input.profile, provider })
   const model = String(input.model || '').trim()
+  const apiKey = String(input.apiKey || '').trim()
+  assertScopedCodingAgentProviderAllowed(mode, provider, apiKey)
   if (!model) {
     const err = new Error('Model is required')
     ;(err as any).status = 400
@@ -1317,7 +1332,6 @@ export async function prepareCodingAgentLaunch(id: string, input: CodingAgentLau
   }
 
   const baseUrl = String(input.baseUrl || '').trim()
-  const apiKey = String(input.apiKey || '').trim()
   const preset = PROVIDER_PRESETS.find(item => item.value === provider)
   const apiMode = normalizeLaunchApiMode(input.apiMode, preset?.api_mode || 'chat_completions')
   const rootDir = getScopedConfigRoot(tool.id, scope)

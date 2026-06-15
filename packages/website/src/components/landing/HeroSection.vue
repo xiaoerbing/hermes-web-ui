@@ -30,7 +30,7 @@ function scrollToDownload() {
   <section class="hero-shell">
     <div class="hero-panel">
       <div class="hero-bg">
-        <img src="/image1.png" :alt="t('hero.previewAlt')" />
+        <img src="/image.png" :alt="t('hero.previewAlt')" />
       </div>
       <div class="hero-overlay" />
 

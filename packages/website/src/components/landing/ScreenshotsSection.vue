@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useScrollReveal } from '@/composables/useScrollReveal'
 
@@ -10,54 +10,11 @@ interface ScreenshotItem {
   desc: string
 }
 
-const { t, tm } = useI18n()
+const { tm } = useI18n()
 useScrollReveal()
 
 const images = computed(() => tm('screenshots.items') as ScreenshotItem[])
-const activeIndex = ref(0)
-const screenshotFrame = ref<HTMLElement | null>(null)
-const tourRail = ref<HTMLElement | null>(null)
-let timer: ReturnType<typeof setInterval>
-
-function next() {
-  activeIndex.value = (activeIndex.value + 1) % images.value.length
-}
-
-function setActive(i: number) {
-  activeIndex.value = i
-  resetTimer()
-}
-
-function resetTimer() {
-  clearInterval(timer)
-  timer = setInterval(next, 5000)
-}
-
-function syncTourHeight() {
-  if (!screenshotFrame.value || !tourRail.value) return
-
-  if (window.innerWidth <= 980) {
-    tourRail.value.style.height = ''
-    return
-  }
-
-  tourRail.value.style.height = `${screenshotFrame.value.offsetHeight}px`
-}
-
-onMounted(() => {
-  timer = setInterval(next, 5000)
-  nextTick(syncTourHeight)
-  window.addEventListener('resize', syncTourHeight)
-})
-
-onUnmounted(() => {
-  clearInterval(timer)
-  window.removeEventListener('resize', syncTourHeight)
-})
-
-watch(activeIndex, () => {
-  nextTick(syncTourHeight)
-})
+const screenshot = computed(() => images.value[0] as ScreenshotItem)
 </script>
 
 <template>
@@ -65,39 +22,17 @@ watch(activeIndex, () => {
     <div class="screenshots-inner reveal">
       <div class="showcase-shell">
         <div class="showcase-copy">
-          <h2>{{ images[activeIndex].title }}</h2>
-          <p>{{ images[activeIndex].desc }}</p>
+          <h2>{{ screenshot.title }}</h2>
+          <p>{{ screenshot.desc }}</p>
         </div>
 
         <div class="showcase-stage">
-          <div ref="screenshotFrame" class="screenshot-frame">
-            <transition name="slide" mode="out-in">
-              <img
-                :key="activeIndex"
-                :src="images[activeIndex].src"
-                :alt="images[activeIndex].alt"
-                class="screenshot-img"
-                @load="syncTourHeight"
-              />
-            </transition>
-          </div>
-
-          <div ref="tourRail" class="tour-rail" :aria-label="t('screenshots.tourLabel')">
-            <button
-              v-for="(img, i) in images"
-              :key="img.src"
-              class="tour-card"
-              :class="{ active: activeIndex === i }"
-              type="button"
-              :aria-label="t('screenshots.goTo', { number: i + 1 })"
-              @click="setActive(i)"
-            >
-              <span class="tour-index">{{ String(i + 1).padStart(2, '0') }}</span>
-              <span class="tour-text">
-                <strong>{{ img.title }}</strong>
-                <small>{{ img.desc }}</small>
-              </span>
-            </button>
+          <div class="screenshot-frame">
+            <img
+              :src="screenshot.src"
+              :alt="screenshot.alt"
+              class="screenshot-img"
+            />
           </div>
         </div>
       </div>
@@ -164,17 +99,8 @@ watch(activeIndex, () => {
 .showcase-stage {
   position: relative;
   isolation: isolate;
-  display: grid;
-  grid-template-columns: minmax(0, 670px) 320px;
-  gap: 32px;
-  align-items: start;
+  display: flex;
   justify-content: center;
-
-  @media (max-width: 980px) {
-    display: flex;
-    flex-direction: column;
-    gap: 30px;
-  }
 }
 
 .screenshot-frame {
@@ -182,6 +108,7 @@ watch(activeIndex, () => {
   z-index: 1;
   align-self: start;
   width: 100%;
+  max-width: 860px;
   min-width: 0;
   border-radius: 12px;
   border: 1px solid rgba(30, 50, 90, 0.08);
@@ -210,107 +137,6 @@ watch(activeIndex, () => {
   width: 100%;
   display: block;
   height: auto;
-}
-
-.tour-rail {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  grid-template-rows: repeat(4, 1fr);
-  gap: 10px;
-  align-self: stretch;
-  padding: 12px;
-  border: 1px solid rgba(30, 50, 90, 0.08);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.46);
-
-  @media (max-width: 980px) {
-    grid-template-rows: none;
-    grid-template-columns: repeat(4, minmax(240px, 1fr));
-    overflow-x: auto;
-  }
-}
-
-.tour-card {
-  display: flex;
-  gap: 12px;
-  min-height: 0;
-  height: 100%;
-  text-align: left;
-  border: 1px solid rgba(30, 50, 90, 0.08);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.5);
-  color: rgba(30, 38, 52, 0.74);
-  padding: 16px;
-  cursor: pointer;
-  transition: transform $transition-fast, border-color $transition-fast, background $transition-fast, box-shadow $transition-fast;
-
-  &.active {
-    border-color: rgba(30, 50, 90, 0.16);
-    background: rgba(255, 255, 255, 0.9);
-    box-shadow: 0 16px 34px rgba(30, 50, 90, 0.1);
-  }
-
-  &:hover {
-    transform: translateY(-1px);
-    border-color: rgba(30, 50, 90, 0.16);
-    background: rgba(255, 255, 255, 0.82);
-  }
-}
-
-.tour-index {
-  flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  background: rgba(30, 50, 90, 0.08);
-  color: rgba(30, 50, 90, 0.7);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 700;
-
-  .tour-card.active & {
-    background: rgba(30, 50, 90, 0.9);
-    color: #fff;
-  }
-}
-
-.tour-text {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 5px;
-
-  strong {
-    color: rgba(30, 38, 52, 0.9);
-    font-size: 14px;
-    font-weight: 700;
-  }
-
-  small {
-    color: rgba(42, 50, 64, 0.58);
-    font-size: 12px;
-    line-height: 1.45;
-  }
-}
-
-// ─── Slide Transition ───────────────────────
-
-.slide-enter-active,
-.slide-leave-active {
-  transition: opacity 0.32s ease, transform 0.32s ease;
-}
-
-.slide-enter-from {
-  opacity: 0;
-  transform: translateX(14px);
-}
-
-.slide-leave-to {
-  opacity: 0;
-  transform: translateX(-14px);
 }
 
 </style>

@@ -15,24 +15,25 @@ const sessionScrollPositions = new Map<string, SessionScrollSnapshot>();
 </script>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onBeforeUnmount, watch } from "vue";
+import { ref, computed, nextTick, onBeforeUnmount, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { NButton, NInput } from "naive-ui";
 import VirtualMessageList from "./VirtualMessageList.vue";
 import MessageItem from "./MessageItem.vue";
-import { useChatStore } from "@/stores/hermes/chat";
-import thinkingImageLight from "@/assets/thinking-light.gif";
-import thinkingImageDark from "@/assets/thinking-dark.gif";
-import { useTheme } from "@/composables/useTheme";
+import { LIVE_CHAT_MAX_LOADED_MESSAGES, useChatStore } from "@/stores/hermes/chat";
+import thinkingImage from "@/assets/thinking.gif";
 import { useToolTraceVisibility } from "@/composables/useToolTraceVisibility";
 
 const chatStore = useChatStore();
 const { t } = useI18n();
-const { isDark } = useTheme();
 const { toolTraceVisible } = useToolTraceVisibility();
 const listRef = ref<InstanceType<typeof VirtualMessageList> | null>(null);
 const pendingInitialScrollSessionId = ref<string | null>(null);
+const showScrollBottomButton = ref(false);
+const thinkingElapsedMs = ref(0);
 const initialBottomScrollOptions = { frames: 8, keepAliveMs: 1200 };
+let thinkingStartedAt = 0;
+let thinkingTimer: ReturnType<typeof setInterval> | null = null;
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
@@ -47,6 +48,26 @@ function formatToolDuration(seconds: number): string {
   const secs = Math.round(seconds % 60)
   return `${mins}m ${secs}s`
 }
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  if (hours > 0) return `${hours}h${mins}m${secs}s`;
+  if (mins > 0) return `${mins}m${secs}s`;
+  return `${secs}s`;
+}
+
+function stopThinkingTimer() {
+  if (thinkingTimer) {
+    clearInterval(thinkingTimer);
+    thinkingTimer = null;
+  }
+}
+
+const isThinkingIndicatorVisible = computed(() => chatStore.isRunActive || !!chatStore.abortState);
+const formattedThinkingElapsed = computed(() => formatElapsed(thinkingElapsedMs.value));
 
 const currentToolCalls = computed(() => {
   const msgs = chatStore.messages;
@@ -85,7 +106,7 @@ const emptyState = computed(() => {
     };
   }
   return {
-    logo: "/logo.png",
+    logo: "/coding-agents/hermes.png",
     alt: "Hermes",
     text: t("chat.emptyState"),
   };
@@ -125,6 +146,18 @@ const virtualListPadding = computed(() => {
   return "20px";
 });
 
+const showHistoryArchiveLink = computed(() => {
+  const session = chatStore.activeSession;
+  return !!session?.hasMoreBefore && (session.loadedMessageCount || 0) >= LIVE_CHAT_MAX_LOADED_MESSAGES;
+});
+
+const historyArchiveHref = computed(() => {
+  const session = chatStore.activeSession;
+  if (!session?.id) return "#/hermes/history";
+  const profileQuery = session.profile ? `?profile=${encodeURIComponent(session.profile)}` : "";
+  return `#/hermes/history/session/${encodeURIComponent(session.id)}${profileQuery}`;
+});
+
 function handleApproval(choice: "once" | "session" | "always" | "deny") {
   chatStore.respondApproval(choice);
 }
@@ -152,6 +185,7 @@ function shouldAutoFollowBottom(threshold = 100): boolean {
 
 function scrollToBottom(options?: BottomScrollOptions) {
   listRef.value?.scrollToBottom(options);
+  showScrollBottomButton.value = false;
 }
 
 function scrollToMessage(messageId: string) {
@@ -160,6 +194,18 @@ function scrollToMessage(messageId: string) {
 
 function scrollToAnchor(messageId: string, anchorId: string) {
   listRef.value?.scrollToAnchor(messageId, anchorId);
+}
+
+function updateScrollBottomButton() {
+  showScrollBottomButton.value = displayMessages.value.length > 0 && !(listRef.value?.isNearBottom(1000) ?? true);
+}
+
+function handleListScroll() {
+  updateScrollBottomButton();
+}
+
+function handleScrollBottomClick() {
+  scrollToBottom({ frames: 4, keepAliveMs: 600 });
 }
 
 function saveSessionScrollPosition(sessionId: string | null | undefined) {
@@ -195,12 +241,13 @@ function applyInitialSessionScroll(sessionId: string) {
 
 async function handleTopReach() {
   const session = chatStore.activeSession;
-  if (!session?.hasMoreBefore || session.isLoadingOlderMessages) return;
+  if (!session?.hasMoreBefore || session.isLoadingOlderMessages || showHistoryArchiveLink.value) return;
   const snapshot = listRef.value?.captureScrollPosition() ?? null;
   const loaded = await chatStore.loadOlderMessages(session.id);
   if (!loaded) return;
   await nextTick();
   listRef.value?.restoreScrollPosition(snapshot);
+  updateScrollBottomButton();
 }
 
 watch(
@@ -220,6 +267,15 @@ watch(
   ([id, length]) => {
     if (!id || pendingInitialScrollSessionId.value !== id || length === 0) return;
     applyInitialSessionScroll(id);
+    void nextTick(updateScrollBottomButton);
+  },
+  { flush: "post" },
+);
+
+watch(
+  () => displayMessages.value.length,
+  () => {
+    void nextTick(updateScrollBottomButton);
   },
   { flush: "post" },
 );
@@ -256,6 +312,24 @@ watch(
   (v) => {
     if (v) scrollToBottom({ frames: 3, keepAliveMs: 400 });
   },
+);
+
+watch(
+  isThinkingIndicatorVisible,
+  (visible) => {
+    stopThinkingTimer();
+    if (!visible) {
+      thinkingStartedAt = 0;
+      thinkingElapsedMs.value = 0;
+      return;
+    }
+    thinkingStartedAt = Date.now();
+    thinkingElapsedMs.value = 0;
+    thinkingTimer = setInterval(() => {
+      thinkingElapsedMs.value = Date.now() - thinkingStartedAt;
+    }, 1000);
+  },
+  { immediate: true },
 );
 
 // During streaming, only auto-scroll if the user is already near the bottom
@@ -295,7 +369,12 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  stopThinkingTimer();
   saveSessionScrollPosition(chatStore.activeSessionId);
+});
+
+onMounted(() => {
+  void nextTick(updateScrollBottomButton);
 });
 
 defineExpose({
@@ -311,7 +390,9 @@ defineExpose({
       :key="chatStore.activeSessionId || 'chat-empty'"
       ref="listRef"
       :messages="displayMessages"
+      :virtualized="false"
       :padding="virtualListPadding"
+      @scroll="handleListScroll"
       @top-reach="handleTopReach"
     >
       <template #empty>
@@ -321,8 +402,13 @@ defineExpose({
         </div>
       </template>
       <template #before>
+        <div v-if="showHistoryArchiveLink" class="history-archive-link-wrap">
+          <a class="history-archive-link" :href="historyArchiveHref">
+            {{ t("chat.viewOlderInHistory") }}
+          </a>
+        </div>
         <div
-          v-if="chatStore.activeSession?.hasMoreBefore || chatStore.activeSession?.isLoadingOlderMessages"
+          v-else-if="chatStore.activeSession?.hasMoreBefore || chatStore.activeSession?.isLoadingOlderMessages"
           class="history-loader"
         >
           <span v-if="chatStore.activeSession?.isLoadingOlderMessages" class="history-loader-spinner"></span>
@@ -336,13 +422,19 @@ defineExpose({
       </template>
       <template #after>
         <Transition name="fade">
-        <div v-if="chatStore.isRunActive || chatStore.abortState" class="streaming-indicator">
-          <img
-            :src="isDark ? thinkingImageDark : thinkingImageLight"
-            alt=""
-            aria-hidden="true"
-            class="thinking-video"
-          >
+        <div v-if="isThinkingIndicatorVisible" class="streaming-indicator">
+          <div class="thinking-status">
+            <img
+              :src="thinkingImage"
+              alt=""
+              aria-hidden="true"
+              class="thinking-avatar"
+            >
+            <div class="thinking-status-copy">
+              <span class="thinking-status-label">{{ t("chat.thinkingInProgress") }}</span>
+              <span class="thinking-status-time">{{ formattedThinkingElapsed }}</span>
+            </div>
+          </div>
           <div v-if="visibleToolCalls.length > 0 || chatStore.compressionState || chatStore.abortState" class="tool-calls-panel">
             <!-- Abort indicator -->
             <div v-if="chatStore.abortState" class="tool-call-item compression-item">
@@ -501,6 +593,28 @@ defineExpose({
         </Transition>
       </template>
     </VirtualMessageList>
+    <button
+      v-if="showScrollBottomButton"
+      type="button"
+      class="scroll-bottom-button"
+      :aria-label="t('chat.scrollToBottom')"
+      :title="t('chat.scrollToBottom')"
+      @click="handleScrollBottomClick"
+    >
+      <svg
+        class="scroll-bottom-icon"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="m7 10 5 5 5-5" />
+        <path d="M6 19h12" />
+      </svg>
+    </button>
     <div
       v-if="visibleApproval || visibleClarify || queuedMessages.length > 0"
       class="message-float-stack"
@@ -680,6 +794,38 @@ defineExpose({
   pointer-events: none;
 }
 
+.scroll-bottom-button {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 7;
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--accent-primary-rgb), 0.24);
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--accent-primary);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+  padding: 0;
+  cursor: pointer;
+
+  .dark & {
+    background: rgba(38, 38, 38, 0.94);
+  }
+}
+
+.scroll-bottom-button:hover {
+  background: rgba(var(--accent-primary-rgb), 0.1);
+}
+
+.scroll-bottom-icon {
+  width: 19px;
+  height: 19px;
+}
+
 .approval-float-panel,
 .queue-float-panel {
   pointer-events: auto;
@@ -770,7 +916,7 @@ defineExpose({
 .approval-float-actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
   margin-top: 10px;
   padding: 10px 4px 0;
@@ -979,6 +1125,10 @@ defineExpose({
       width: 100%;
     }
   }
+
+  .tool-calls-panel .tool-call-item {
+    width: 100%;
+  }
 }
 
 @keyframes queue-spin {
@@ -1040,6 +1190,35 @@ defineExpose({
   }
 }
 
+.history-archive-link-wrap {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 8px;
+}
+
+.history-archive-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 1px solid rgba(var(--accent-primary-rgb), 0.22);
+  border-radius: 999px;
+  background: rgba(var(--accent-primary-rgb), 0.08);
+  color: var(--accent-primary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-decoration: none;
+  white-space: normal;
+  text-align: center;
+}
+
+.history-archive-link:hover {
+  background: rgba(var(--accent-primary-rgb), 0.14);
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.4s ease;
@@ -1051,15 +1230,94 @@ defineExpose({
 
 .streaming-indicator {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 4px;
-  .thinking-video {
-    width: 120px;
-    height: 213px;
-    border-radius: $radius-md;
-    object-fit: contain;
-    flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.thinking-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+}
+
+.thinking-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: $radius-md;
+  object-fit: cover;
+  flex-shrink: 0;
+
+  .dark & {
+    filter: brightness(1.18) contrast(1.08) saturate(1.08);
+  }
+}
+
+.thinking-status-copy {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  column-gap: 8px;
+  row-gap: 2px;
+  min-width: 0;
+  min-height: 20px;
+}
+
+.thinking-status-label {
+  display: inline-flex;
+  align-items: center;
+  color: transparent;
+  background: linear-gradient(105deg, $text-secondary 0%, $text-secondary 39%, #ffffff 48%, #ffffff 52%, $text-secondary 61%, $text-secondary 100%);
+  background-size: 300% 100%;
+  background-position: 0% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  animation: thinking-label-shimmer 2.2s linear infinite;
+  backface-visibility: hidden;
+  contain: paint;
+  transform: translateZ(0);
+  will-change: background-position;
+
+  .dark & {
+    background: linear-gradient(105deg, #f0f0f0 0%, #f0f0f0 37%, #2f3540 47%, #2f3540 53%, #f0f0f0 63%, #f0f0f0 100%);
+    background-size: 300% 100%;
+    background-position: 0% 0;
+    -webkit-background-clip: text;
+    background-clip: text;
+    filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.16));
+  }
+}
+
+.thinking-status-time {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 2px;
+  color: $text-muted;
+  font-family: $font-code;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+  min-width: 44px;
+}
+
+@keyframes thinking-label-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: 0% 0;
   }
 }
 
@@ -1067,9 +1325,10 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 213px;
+  width: 100%;
+  min-width: 0;
+  max-height: 180px;
   overflow-y: auto;
-  padding-top: 4px;
   scrollbar-width: none;
   -ms-overflow-style: none;
   &::-webkit-scrollbar {
@@ -1081,6 +1340,10 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 520px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   font-size: 11px;
   color: $text-secondary;
   padding: 3px 8px;
@@ -1103,14 +1366,20 @@ defineExpose({
 
   .tool-call-name {
     font-family: $font-code;
-    flex-shrink: 0;
-  }
-
-  .tool-call-preview {
+    flex: 0 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 300px;
+  }
+
+  .tool-call-preview {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: none;
     color: $text-muted;
   }
 }

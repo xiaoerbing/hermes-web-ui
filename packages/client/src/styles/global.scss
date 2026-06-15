@@ -154,9 +154,11 @@ a {
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
+  background: transparent;
 }
 
-::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-track-piece {
   background: transparent;
 }
 
@@ -167,6 +169,15 @@ a {
   &:hover {
     background: $text-muted;
   }
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: $border-color transparent;
 }
 
 ::selection {

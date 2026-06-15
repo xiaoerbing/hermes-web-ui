@@ -14,6 +14,9 @@ import { detectThinkingBoundary } from '@/utils/thinking-parser'
 // Re-export ContentBlock for convenience
 export type ContentBlock = ContentBlockImport
 
+export const LIVE_CHAT_MESSAGE_PAGE_SIZE = 150
+export const LIVE_CHAT_MAX_LOADED_MESSAGES = 300
+
 export interface Attachment {
   id: string
   name: string
@@ -412,13 +415,15 @@ function mapHermesMessages(msgs: HermesMessage[]): Message[] {
     }
 
     // Normal user/assistant/command messages
+    const displayRole = msg.display_role || msg.role
+    const displayContent = msg.display_content ?? msg.content
     result.push({
       id: String(msg.id),
-      role: msg.role,
-      content: msg.content || '',
+      role: displayRole,
+      content: displayContent || '',
       timestamp: Math.round(msg.timestamp * 1000),
       reasoning: msg.reasoning ? msg.reasoning : undefined,
-      systemType: msg.role === 'command' ? 'command' : undefined,
+      systemType: displayRole === 'command' ? 'command' : undefined,
       finishReason: readFinishReason(msg),
       runMarker: readRunMarker(msg),
     })
@@ -552,6 +557,8 @@ export const useChatStore = defineStore('chat', () => {
   const streamStates = ref<Map<string, { abort: () => void }>>(new Map())
   /** sessionId → server-reported isWorking status */
   const serverWorking = ref<Set<string>>(new Set())
+  /** Sessions that completed while the user was viewing another session. */
+  const completedUnreadSessions = ref<Set<string>>(new Set())
   const sessionProfileFilter = ref<string | null>(null)
   /** sessionId → queued message count */
   const queueLengths = ref<Map<string, number>>(new Map())
@@ -623,6 +630,35 @@ export const useChatStore = defineStore('chat', () => {
     return streamStates.value.has(sessionId) || serverWorking.value.has(sessionId)
   }
 
+  function isSessionCompletedUnread(sessionId: string): boolean {
+    return completedUnreadSessions.value.has(sessionId)
+  }
+
+  function clearSessionCompletedUnread(sessionId: string) {
+    if (!completedUnreadSessions.value.has(sessionId)) return
+    const next = new Set(completedUnreadSessions.value)
+    next.delete(sessionId)
+    completedUnreadSessions.value = next
+  }
+
+  function markSessionCompletedUnread(sessionId: string, hasQueue = false) {
+    if (hasQueue) {
+      return
+    }
+    if (activeSessionId.value === sessionId) {
+      clearSessionCompletedUnread(sessionId)
+      return
+    }
+    const next = new Set(completedUnreadSessions.value)
+    next.add(sessionId)
+    completedUnreadSessions.value = next
+  }
+
+  function pruneCompletedUnreadSessions(existingIds: Set<string>) {
+    const next = new Set([...completedUnreadSessions.value].filter(id => existingIds.has(id)))
+    if (next.size !== completedUnreadSessions.value.size) completedUnreadSessions.value = next
+  }
+
   function clearActiveSession() {
     const sid = activeSessionId.value
     activeSessionId.value = null
@@ -650,6 +686,7 @@ export const useChatStore = defineStore('chat', () => {
         if (prev?.contextTokens != null) s.contextTokens = prev.contextTokens
       }
       sessions.value = fresh
+      pruneCompletedUnreadSessions(new Set(sessions.value.map(s => s.id)))
 
       // Restore route-selected session first (tab-local source of truth),
       // then current in-memory session, then persisted legacy/default choice,
@@ -738,6 +775,7 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       sessions.value = next
+      pruneCompletedUnreadSessions(new Set(next.map(s => s.id)))
 
       // Defensive: re-bind activeSession to the (same) object now in the array,
       // by id, in case anything above changed array membership.
@@ -757,7 +795,10 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const target = sessions.value.find(s => s.id === sid)
       if (!target) return false
-      const limit = Math.max(target.loadedMessageCount || 300, 300)
+      const limit = Math.min(
+        Math.max(target.loadedMessageCount || LIVE_CHAT_MESSAGE_PAGE_SIZE, LIVE_CHAT_MESSAGE_PAGE_SIZE),
+        LIVE_CHAT_MAX_LOADED_MESSAGES,
+      )
       const detail = await fetchSessionMessagesPage(sid, 0, limit, activeSession.value?.profile)
       if (!detail) return false
       const mapped = mapHermesMessages(detail.messages || [])
@@ -846,6 +887,7 @@ export const useChatStore = defineStore('chat', () => {
     const legacyActiveKey = legacyStorageKey()
     if (legacyActiveKey) removeItem(legacyActiveKey)
     activeSession.value = sessions.value.find(s => s.id === sessionId) || null
+    clearSessionCompletedUnread(sessionId)
 
     if (!activeSession.value) return
 
@@ -1013,7 +1055,8 @@ export const useChatStore = defineStore('chat', () => {
     const target = sessions.value.find(s => s.id === sessionId)
     if (!target || target.isLoadingOlderMessages || !target.hasMoreBefore) return false
     const offset = target.loadedMessageCount || 0
-    const limit = 300
+    if (offset >= LIVE_CHAT_MAX_LOADED_MESSAGES) return false
+    const limit = Math.min(LIVE_CHAT_MESSAGE_PAGE_SIZE, LIVE_CHAT_MAX_LOADED_MESSAGES - offset)
     target.isLoadingOlderMessages = true
     try {
       const page = await fetchSessionMessagesPage(sessionId, offset, limit, target.profile)
@@ -1707,9 +1750,10 @@ export const useChatStore = defineStore('chat', () => {
     const isBridgeSlashCommand = !isCodingAgentSession && content.trim().startsWith('/')
     const isBridgeCompressCommand = isBridgeSlashCommand && /^\/compress(?:\s|$)/i.test(content.trim())
     const isBridgePlanCommand = isBridgeSlashCommand && /^\/plan(?:\s|$)/i.test(content.trim())
+    const isBridgeSkillCommand = isBridgeSlashCommand && /^\/skill(?:\s|$)/i.test(content.trim())
     const isBridgeGoalCommand = isBridgeSlashCommand && /^\/goal(?:\s|$)/i.test(content.trim())
     const wasLiveBeforeSend = isSessionLive(sid)
-    const shouldQueue = wasLiveBeforeSend && (!isBridgeSlashCommand || isBridgePlanCommand)
+    const shouldQueue = wasLiveBeforeSend && (!isBridgeSlashCommand || isBridgePlanCommand || isBridgeSkillCommand)
 
     const userMsg: Message = {
       id: uid(),
@@ -1995,6 +2039,7 @@ export const useChatStore = defineStore('chat', () => {
           if (eventRunMarker) activeRunMarker = eventRunMarker
           switch (evt.event) {
             case 'run.started':
+              clearSessionCompletedUnread(sid)
               serverWorking.value.add(sid)
               clearAgentEventMessages(sid)
               setAbortState(null)
@@ -2402,7 +2447,9 @@ export const useChatStore = defineStore('chat', () => {
                 }
               }
 
-              if ((evt as any).queue_remaining > 0) {
+              const hasQueue = (evt as any).queue_remaining > 0
+              markSessionCompletedUnread(sid, hasQueue)
+              if (hasQueue) {
                 queueLengths.value.set(sid, (evt as any).queue_remaining)
               } else {
                 cleanup()
@@ -2590,6 +2637,7 @@ export const useChatStore = defineStore('chat', () => {
         }
 
         case 'run.started':
+          clearSessionCompletedUnread(sid)
           serverWorking.value.add(sid)
           clearAgentEventMessages(sid)
           setAbortState(null)
@@ -2953,11 +3001,13 @@ export const useChatStore = defineStore('chat', () => {
           }
 
           if (!hasQueue) {
+            markSessionCompletedUnread(sid)
             cleanup()
             activeAssistantMessageId = null
             reasoningAssistantMessageId = null
             activeRunMarker = null
           } else {
+            markSessionCompletedUnread(sid, true)
             // More runs pending — reset for next run but don't cleanup
             activeAssistantMessageId = null
             reasoningAssistantMessageId = null
@@ -3293,6 +3343,8 @@ export const useChatStore = defineStore('chat', () => {
     isStreaming,
     isRunActive,
     isSessionLive,
+    isSessionCompletedUnread,
+    clearSessionCompletedUnread,
     sessionProfileFilter,
     compressionState,
     abortState,

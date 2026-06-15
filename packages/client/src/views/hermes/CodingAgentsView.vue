@@ -78,7 +78,7 @@ const launchResult = ref<CodingAgentLaunchResult | null>(null)
 const terminalVisible = ref(false)
 const terminalCommand = ref('')
 const terminalKey = ref(0)
-const CODING_AGENT_AUTH_PROVIDER_KEYS = new Set(['openai-codex', 'copilot', 'xai-oauth', 'nous'])
+const CODING_AGENT_AUTH_PROVIDER_KEYS = new Set(['openai-codex', 'copilot', 'xai-oauth', 'nous', 'google-gemini-cli', 'claude-oauth'])
 
 const agentLogos: Record<CodingAgentBlock['tool'], string> = {
   'Claude Code': '/coding-agents/claude-code.svg',
@@ -137,13 +137,14 @@ const statusById = computed(() => {
 
 const activeProfileName = computed(() => profilesStore.activeProfileName || 'default')
 
-function isCodingAgentAuthProvider(provider?: string) {
-  return CODING_AGENT_AUTH_PROVIDER_KEYS.has(String(provider || '').toLowerCase())
+function isCodingAgentAuthProvider(provider: AvailableModelGroup) {
+  const providerKey = String(provider.provider || '').toLowerCase()
+  return CODING_AGENT_AUTH_PROVIDER_KEYS.has(providerKey)
 }
 
 const selectableLaunchProviders = computed(() => (
   launchMode.value === 'scoped'
-    ? launchProviders.value.filter(provider => !isCodingAgentAuthProvider(provider.provider))
+    ? launchProviders.value.filter(provider => !isCodingAgentAuthProvider(provider))
     : launchProviders.value
 ))
 

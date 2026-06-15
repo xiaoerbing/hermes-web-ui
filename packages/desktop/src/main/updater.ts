@@ -8,7 +8,7 @@ let updateDownloaded = false
 let tryingFallbackFeed = false
 
 const CLOUDFLARE_LATEST_FEED_URL = 'https://download.ekkolearnai.com/latest'
-const GITHUB_LATEST_FEED_URL = 'https://github.com/EKKOLearnAI/hermes-web-ui/releases/latest/download'
+const GITHUB_LATEST_FEED_URL = 'https://github.com/EKKOLearnAI/hermes-studio/releases/latest/download'
 
 interface AutoUpdaterOptions {
   beforeQuitAndInstall?: () => void

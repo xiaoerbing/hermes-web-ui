@@ -42,7 +42,7 @@ function runtimeRequiredFiles(root: string): string[] {
   const python = isWin ? join(root, 'python', 'python.exe') : join(root, 'python', 'bin', 'python3')
   const hermes = isWin ? join(root, 'python', 'Scripts', 'hermes.exe') : join(root, 'python', 'bin', 'hermes')
   const node = isWin ? join(root, 'node', 'node.exe') : join(root, 'node', 'bin', 'node')
-  const files = [python, hermes, node, join(root, 'runtime-manifest.json')]
+  const files = [python, hermes, node]
   if (isWin) files.push(join(root, 'git', 'cmd', 'git.exe'))
   return files
 }
@@ -188,10 +188,6 @@ export function desktopRuntimeVersion(): string {
   if (versionOverride) return versionOverride
 
   return DEFAULT_HERMES_AGENT_VERSION
-}
-
-export function legacyDesktopRuntimeDir(): string {
-  return join(webUiHome(), 'desktop-runtime', runtimePlatformKey())
 }
 
 export function targetDesktopRuntimeDir(): string {

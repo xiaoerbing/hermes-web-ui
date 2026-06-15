@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 describe('chat message mobile layout guards', () => {
   it('keeps chat message containers shrinkable on narrow screens', () => {
     const chatPanel = readFileSync('packages/client/src/components/hermes/chat/ChatPanel.vue', 'utf8')
+    const messageList = readFileSync('packages/client/src/components/hermes/chat/MessageList.vue', 'utf8')
     const virtualList = readFileSync('packages/client/src/components/hermes/chat/VirtualMessageList.vue', 'utf8')
     const messageItem = readFileSync('packages/client/src/components/hermes/chat/MessageItem.vue', 'utf8')
     const markdownRenderer = readFileSync('packages/client/src/components/hermes/chat/MarkdownRenderer.vue', 'utf8')
@@ -16,6 +17,12 @@ describe('chat message mobile layout guards', () => {
     expect(chatPanel).toContain('min-width: 0;')
     expect(chatPanel).toContain('.chat-content-wrapper')
     expect(chatPanel).toContain('max-width: 100%;')
+
+    expect(messageList).toContain('.streaming-indicator')
+    expect(messageList).toContain('.tool-calls-panel')
+    expect(messageList).toContain('.tool-call-preview')
+    expect(messageList).toContain('width: 100%;')
+    expect(messageList).toContain('max-width: none;')
 
     expect(virtualList).toContain('.virtual-message-list-host')
     expect(virtualList).toContain('.virtual-row')
